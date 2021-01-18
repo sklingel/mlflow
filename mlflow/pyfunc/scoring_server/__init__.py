@@ -41,6 +41,9 @@ try:
 except ImportError:
     from io import StringIO
 
+from flask_httpauth import HTTPTokenAuth
+
+
 _SERVER_MODEL_PATH = "__pyfunc_model_path__"
 
 CONTENT_TYPE_CSV = "text/csv"
@@ -252,13 +255,31 @@ def _handle_serving_error(error_message, error_code, include_traceback=True):
     reraise(MlflowException, e)
 
 
-def init(model: PyFuncModel):
+def init(model: PyFuncModel, auth_token: str):
 
     """
     Initialize the server. Loads pyfunc model from the path.
     """
     app = flask.Flask(__name__)
     input_schema = model.metadata.get_input_schema()
+
+    auth = HTTPTokenAuth(scheme="Bearer")
+
+    if auth_token:
+        tokens = {
+            auth_token: "default"
+        }
+        auth_optional = False
+    else:
+        auth_optional = True
+
+    @auth.verify_token  
+    def verify_token(token):
+        if not auth_optional:
+            if token in tokens:
+                return tokens[token]
+            else:
+                return
 
     @app.route("/ping", methods=["GET"])
     def ping():  # pylint: disable=unused-variable
@@ -271,6 +292,7 @@ def init(model: PyFuncModel):
         return flask.Response(response="\n", status=status, mimetype="application/json")
 
     @app.route("/invocations", methods=["POST"])
+    @auth.login_required(optional=auth_optional)
     @catch_mlflow_exception
     def transformation():  # pylint: disable=unused-variable
         """
